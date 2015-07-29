@@ -1,4 +1,4 @@
-﻿ using Microsoft.VisualStudio;
+﻿using Microsoft.VisualStudio;
 using Microsoft.VisualStudioTools.Project;
 using Microsoft.VisualStudio.Shell.Interop;
 using System;
@@ -7,10 +7,12 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
- using Microsoft.VisualStudioTools;
- using OleConstants = Microsoft.VisualStudio.OLE.Interop.Constants;
+using Microsoft.VisualStudioTools;
+using VisualRust.Project.Configuration.MsBuild;
+using OleConstants = Microsoft.VisualStudio.OLE.Interop.Constants;
 using VsCommands = Microsoft.VisualStudio.VSConstants.VSStd97CmdID;
 using VsCommands2K = Microsoft.VisualStudio.VSConstants.VSStd2KCmdID;
+using VisualRust.Shared;
 
 namespace VisualRust.Project
 {
@@ -70,6 +72,7 @@ namespace VisualRust.Project
     {
         private ImageHandler handler;
         private bool containsEntryPoint;
+        public UserProjectConfig UserConfig { get; private set; }
         internal ModuleTracker ModuleTracker { get; private set; }
 
         public RustProjectNode(CommonProjectPackage package)
@@ -78,16 +81,25 @@ namespace VisualRust.Project
             this.CanFileNodesHaveChilds = false;
             this.CanProjectDeleteItems = true;
             this.ListenForStartupFileUpdates = false;
+            this.OnProjectPropertyChanged += ReloadOnOutputChange;
+        }
+
+        void ReloadOnOutputChange(object sender, ProjectPropertyChangedArgs e)
+        {
+            if(String.Equals(e.PropertyName, "OutputType", StringComparison.OrdinalIgnoreCase)
+                && !String.Equals(e.OldValue, e.NewValue, StringComparison.OrdinalIgnoreCase))
+            {
+                TrackedFileNode crateNode =  this.GetCrateFileNode(e.OldValue);
+                if(crateNode != null)
+                    crateNode.IsEntryPoint = false;
+                this.ReloadCore();
+                this.GetCrateFileNode(e.NewValue).IsEntryPoint = true;
+            }
         }
 
         public override System.Guid ProjectGuid
         {
             get { return typeof(RustProjectFactory).GUID; }
-        }
-
-        public override string ProjectType
-        {
-            get { return "Rust"; }
         }
 
         public ImageHandler RustImageHandler
@@ -114,9 +126,36 @@ namespace VisualRust.Project
 
         protected override void Reload()
         {
-            string outputType = GetProjectProperty(ProjectFileConstants.OutputType, false);
-            string entryPoint = Path.Combine(Path.GetDirectoryName(this.FileName), outputType == "library" ? @"src\lib.rs" : @"src\main.rs");
-            containsEntryPoint = false;
+            EventTriggeringFlag = ProjectNode.EventTriggering.DoNotTriggerHierarchyEvents | ProjectNode.EventTriggering.DoNotTriggerTrackerEvents;
+            try
+            {
+                ReloadCore();
+            }
+            finally
+            {
+                EventTriggeringFlag = ProjectNode.EventTriggering.TriggerAll;
+            }
+            this.SaveMSBuildProjectFile(this.FileName);
+            EventTriggeringFlag = ProjectNode.EventTriggering.TriggerAll;
+        }
+
+        public string GetCrateFileNodePath(string outputType)
+        {
+            BuildOutputType output = BuildOutputTypeExtension.Parse(outputType);
+            return Path.Combine(Path.GetDirectoryName(this.FileName), "src", output.ToCrateFile());
+        }
+
+        public TrackedFileNode GetCrateFileNode(string outputType)
+        {
+            return FindNodeByFullPath(GetCrateFileNodePath(outputType)) as TrackedFileNode;
+        }
+
+        protected void ReloadCore()
+        {
+            this.UserConfig = new UserProjectConfig(this);
+            string outputType = GetProjectProperty(ProjectFileConstants.OutputType, true);
+            string entryPoint = GetCrateFileNodePath(outputType);
+            containsEntryPoint = GetCrateFileNode(outputType) != null;
             ModuleTracker = new ModuleTracker(entryPoint);
             base.Reload();
             // This project for some reason doesn't include entrypoint node, add it
@@ -127,12 +166,24 @@ namespace VisualRust.Project
                 node.IsEntryPoint = true;
                 parent.AddChild(node);
             }
+            MarkEntryPointFolders(outputType);
             foreach (string file in ModuleTracker.ExtractReachableAndMakeIncremental())
             {
                 HierarchyNode parent = this.CreateFolderNodes(Path.GetDirectoryName(file), false);
                 parent.AddChild(CreateUntrackedNode(file));
             }
-            this.BuildProject.Save();
+        }
+
+        private void MarkEntryPointFolders(string outputType)
+        {
+            HierarchyNode node = GetCrateFileNode(outputType);
+            while(true)
+            {
+                node = node.Parent;
+                if(!(node is RustFolderNode))
+                    break;
+                ((RustFolderNode)node).IsEntryPoint = true;
+            }
         }
 
         internal void OnNodeDirty(uint id)
@@ -290,7 +341,7 @@ namespace VisualRust.Project
             if (element == null)
                 throw new ArgumentException("element");
             if (element is AllFilesProjectElement || !String.IsNullOrEmpty(element.ItemTypeName))
-                return new CommonFolderNode(this, element);
+                return new RustFolderNode(this, element);
             else
                 return new UntrackedFolderNode(this, element);
         }
@@ -320,6 +371,17 @@ namespace VisualRust.Project
                 HierarchyNode parent = this.CreateFolderNodes(Path.GetDirectoryName(child), false);
                 parent.AddChild(CreateUntrackedNode(child));
             }
+        }
+
+        protected override ConfigProvider CreateConfigProvider()
+        {
+            return new RustConfigProvider(this);
+        }
+
+        public override int GetSpecificEditorType(string mkDocument, out Guid guidEditorType)
+        {
+            guidEditorType = new Guid();
+            return VSConstants.S_OK;
         }
 
 #region Disable "Add references..."
@@ -355,24 +417,28 @@ namespace VisualRust.Project
         }
 #endregion
 
+        // This is OK, because this function is only called by
+        // ProjectGuid getter, which we override anyway
         public override Type GetProjectFactoryType()
         {
-            throw new NotImplementedException();
+            throw new InvalidOperationException();
         }
-
+        
+        // This is OK, because this function is only called by
+        // GetSpecificEditorType(...), which we override anyway
         public override Type GetEditorFactoryType()
         {
-            throw new NotImplementedException();
+            throw new InvalidOperationException();
         }
 
         public override string GetProjectName()
         {
-            throw new NotImplementedException();
+            return "Rust";
         }
 
         public override string GetFormatList()
         {
-            throw new NotImplementedException();
+            return "Rust Project File (*.rsproj)\n*.rsproj";
         }
 
         public override Type GetGeneralPropertyPageType()
@@ -391,9 +457,29 @@ namespace VisualRust.Project
             return defaultLauncher;
         }
 
+        public override ProjectConfig MakeConfiguration(string activeConfigName)
+        {
+            return new RustProjectConfig(this, activeConfigName);
+        }
+
         internal override string IssueTrackerUrl
         {
-            get { throw new NotImplementedException(); }
+            get { return "http://github.com/PistonDevelopers/VisualRust/issues"; }
+        }
+
+        protected override Guid[] GetConfigurationDependentPropertyPages()
+        {
+            return new[] {
+                new Guid(Constants.BuildPropertyPage),
+                new Guid(Constants.DebugPropertyPage),
+            };
+        }
+
+        protected override Guid[] GetConfigurationIndependentPropertyPages()
+        {
+            return new[] {
+                new Guid(Constants.ApplicationPropertyPage),
+            };
         }
     }
 }

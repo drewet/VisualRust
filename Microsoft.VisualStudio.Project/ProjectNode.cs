@@ -2201,7 +2201,6 @@ namespace Microsoft.VisualStudioTools.Project {
                 disableQueryEdit = true;
 
                 isClosed = false;
-                eventTriggeringFlag = ProjectNode.EventTriggering.DoNotTriggerHierarchyEvents | ProjectNode.EventTriggering.DoNotTriggerTrackerEvents;
 
                 SetBuildProject(Utilities.ReinitializeMsBuildProject(buildEngine, filename, buildProject));
 
@@ -2221,7 +2220,6 @@ namespace Microsoft.VisualStudioTools.Project {
                 RegisterSccProject();
             } finally {
                 isDirty = false;
-                eventTriggeringFlag = ProjectNode.EventTriggering.TriggerAll;
                 disableQueryEdit = false;
             }
         }
@@ -2809,6 +2807,19 @@ namespace Microsoft.VisualStudioTools.Project {
 
 
             bool propertiesChanged = this.BuildProject.SetGlobalProperty(ProjectFileConstants.Configuration, config);
+            if (this.currentConfig == null || propertiesChanged) {
+                this.currentConfig = this.BuildProject.CreateProjectInstance();
+            }
+        }
+
+        // Set the platform property in MSBuild.
+        protected internal virtual void SetPlatformName(string platform) {
+            Utilities.ArgumentNotNull("platform", platform);
+
+            if (!IsProjectOpened)
+                return;
+
+            bool propertiesChanged = this.BuildProject.SetGlobalProperty(ProjectFileConstants.Platform, platform);
             if (this.currentConfig == null || propertiesChanged) {
                 this.currentConfig = this.BuildProject.CreateProjectInstance();
             }
@@ -5228,7 +5239,7 @@ If the files in the existing folder have the same names as files in the folder y
             // Other misc properties
             this.buildProject.SetGlobalProperty(GlobalProperty.BuildingInsideVisualStudio.ToString(), "true");
             this.buildProject.SetGlobalProperty(GlobalProperty.Configuration.ToString(), ProjectConfig.Debug);
-            this.buildProject.SetGlobalProperty(GlobalProperty.Platform.ToString(), ProjectConfig.AnyCPU);
+            this.buildProject.SetGlobalProperty(GlobalProperty.Platform.ToString(), "default");
 
             // DevEnvDir property
             object installDirAsObject = null;

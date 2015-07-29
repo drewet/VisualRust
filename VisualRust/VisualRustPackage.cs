@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 using System.ComponentModel.Design;
 using System.ComponentModel.Composition;
+using Microsoft.MIDebugEngine;
 using Microsoft.Win32;
 using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.Shell.Interop;
@@ -14,6 +15,8 @@ using Microsoft.VisualStudio.Text.Editor;
 using VisualRust.Project;
 using Microsoft.VisualStudioTools.Project;
 using Microsoft.VisualStudioTools.Project.Automation;
+using VisualRust.Options;
+using Microsoft.VisualStudio.ComponentModelHost;
 
 namespace VisualRust
 {
@@ -32,7 +35,7 @@ namespace VisualRust
     [PackageRegistration(UseManagedResourcesOnly = true)]
     // This attribute is used to register the information needed to show this package
     // in the Help/About dialog of Visual Studio.
-    [InstalledProductRegistration("#110", "#112", "1.0", IconResourceID = 400)]
+    [InstalledProductRegistration("#110", "#112", "0.1", IconResourceID = 400)]
     [ProvideLanguageService(typeof(RustLanguage), "Rust", 100, 
         CodeSense = true, 
         DefaultToInsertSpaces = true,
@@ -58,9 +61,17 @@ namespace VisualRust
         LanguageVsTemplate="Rust")]
     [ProvideLanguageExtension(typeof(RustLanguage), ".rs")]
     [Guid(GuidList.guidVisualRustPkgString)]
+    [ProvideObject(typeof(Project.Forms.ApplicationPropertyPage))]
+    [ProvideObject(typeof(Project.Forms.BuildPropertyPage))]
+    [ProvideObject(typeof(Project.Forms.DebugPropertyPage))]
+    [ProvideOptionPage(typeof(RustOptionsPage), "Visual Rust", "General", 110, 113, true)]
+    [ProvideOptionPage(typeof(DebuggingOptionsPage), "Visual Rust", "Debugging", 110, 114, true)]
+    [ProvideProfile(typeof(RustOptionsPage), "Visual Rust", "General", 110, 113, true)]
+    [ProvideDebugEngine("Rust GDB", typeof(AD7ProgramProvider), typeof(AD7Engine), EngineConstants.EngineId)]
     public class VisualRustPackage : CommonProjectPackage
     {
         private RunningDocTableEventsListener docEventsListener;
+        internal static VisualRustPackage Instance { get; private set; }
 
         /// <summary>
         /// Default constructor of the package.
@@ -86,8 +97,11 @@ namespace VisualRust
         protected override void Initialize()
         {
             base.Initialize();
+            Instance = this;
+
             docEventsListener = new RunningDocTableEventsListener((IVsRunningDocumentTable)GetService(typeof(SVsRunningDocumentTable)));
-            Racer.AutoCompleter.Init();
+
+            Racer.RacerSingleton.Init();
         }
 
         protected override void Dispose(bool disposing)
@@ -120,17 +134,17 @@ namespace VisualRust
 
         public override string GetProductName()
         {
-            throw new NotImplementedException();
+            return "Visual Rust";
         }
 
         public override string GetProductDescription()
         {
-            throw new NotImplementedException();
+            return "Visual Studio integration for the Rust programming language (http://www.rust-lang.org/)";
         }
 
         public override string GetProductVersion()
         {
-            throw new NotImplementedException();
+            return "0.1";
         }
     }
 }

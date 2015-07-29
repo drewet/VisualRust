@@ -21,6 +21,16 @@
     <TargetFrameworkVersion>v4.5</TargetFrameworkVersion>
     <CopyVsixManifestToOutput>true</CopyVsixManifestToOutput>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug-CI|AnyCPU'">
+    <DebugSymbols>true</DebugSymbols>
+    <OutputPath>bin\Debug-CI\</OutputPath>
+    <DefineConstants>TRACE;DEBUG;CONTRACTS_FULL</DefineConstants>
+    <DebugType>full</DebugType>
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <ErrorReport>prompt</ErrorReport>
+    <DeployExtension>false</DeployExtension>
+    <CreateVsixContainer>true</CreateVsixContainer>
+  </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <DebugSymbols>true</DebugSymbols>
     <DebugType>full</DebugType>
@@ -29,7 +39,7 @@
     <DefineConstants>TRACE;DEBUG;CONTRACTS_FULL</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
-    <!-- Don't explicitly set DeployExtension to true, or you will break CI -->
+    <DeployExtension>true</DeployExtension>
     <CreateVsixContainer>true</CreateVsixContainer>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
@@ -42,16 +52,16 @@
     <DeployExtension>false</DeployExtension>
     <CreateVsixContainer>false</CreateVsixContainer>
   </PropertyGroup>
-  <ItemGroup Condition="'$(Configuration)' == 'Debug'">
-    <Content Include="..\VisualRust.Templates\bin\Debug\ProjectTemplates\Rust\1033\ApplicationProject.zip">
+  <ItemGroup Condition="'$(Configuration)' == 'Debug' Or '$(Configuration)' == 'Debug-CI'">
+    <Content Include="..\VisualRust.Templates\bin\$(Configuration)\ProjectTemplates\Rust\127\ApplicationProject.zip">
       <Link>ProjectTemplates\ApplicationProject.zip</Link>
       <IncludeInVSIX>true</IncludeInVSIX>
     </Content>
-    <Content Include="..\VisualRust.Templates\bin\Debug\ProjectTemplates\Rust\1033\LibraryProject.zip">
+    <Content Include="..\VisualRust.Templates\bin\$(Configuration)\ProjectTemplates\Rust\127\LibraryProject.zip">
       <Link>ProjectTemplates\LibraryProject.zip</Link>
       <IncludeInVSIX>true</IncludeInVSIX>
     </Content>
-    <Content Include="..\VisualRust.Templates\bin\Debug\ItemTemplates\Rust\1033\Module.zip">
+    <Content Include="..\VisualRust.Templates\bin\$(Configuration)\ItemTemplates\Rust\127\Module.zip">
       <Link>ItemTemplates\Module.zip</Link>
       <IncludeInVSIX>true</IncludeInVSIX>
     </Content>
@@ -63,6 +73,8 @@
     <Reference Include="Microsoft.CSharp" />
     <Reference Include="Microsoft.VisualStudio.ComponentModelHost, Version=12.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL" />
     <Reference Include="Microsoft.VisualStudio.CoreUtility, Version=12.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL" />
+    <Reference Include="Microsoft.VisualStudio.Debugger.Interop.11.0, Version=11.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL" />
+    <Reference Include="Microsoft.VisualStudio.Debugger.InteropA, Version=9.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a" />
     <Reference Include="Microsoft.VisualStudio.Editor, Version=12.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL" />
     <Reference Include="Microsoft.VisualStudio.Language.Intellisense, Version=12.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL" />
     <Reference Include="Microsoft.VisualStudio.Language.StandardClassification, Version=12.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL" />
@@ -156,36 +168,76 @@
     </COMReference>
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="Guids.cs" />
-    <Compile Include="Racer\AutoCompleter.cs" />
-    <Compile Include="Resources.Designer.cs">
-      <AutoGen>True</AutoGen>
-      <DesignTime>True</DesignTime>
-      <DependentUpon>Resources.resx</DependentUpon>
+    <Compile Include="Forms\DebuggingDisabledControl.cs">
+      <SubType>UserControl</SubType>
     </Compile>
+    <Compile Include="Forms\DebuggingDisabledControl.Designer.cs">
+      <DependentUpon>DebuggingDisabledControl.cs</DependentUpon>
+    </Compile>
+    <Compile Include="ProjectForms\BasePropertyPage.cs" />
+    <Compile Include="ProjectForms\BuildPropertyPage.cs" />
+    <Compile Include="ProjectForms\DebugPropertyPage.cs" />
+    <Compile Include="Forms\DebuggingOptionsPage.cs">
+      <SubType>component</SubType>
+    </Compile>
+    <Compile Include="Forms\DebuggingOptionsPageControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="Forms\DebuggingOptionsPageControl.Designer.cs">
+      <DependentUpon>DebuggingOptionsPageControl.cs</DependentUpon>
+    </Compile>
+    <Compile Include="ProjectForms\GeneralPropertyPage.cs" />
+    <Compile Include="Forms\RustOptionsPageControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="Forms\RustOptionsPageControl.designer.cs">
+      <DependentUpon>RustOptionsPageControl.cs</DependentUpon>
+    </Compile>
+    <Compile Include="Guids.cs" />
+    <Compile Include="Forms\RustOptionsPage.cs">
+      <SubType>Component</SubType>
+    </Compile>
+    <Compile Include="ProvideDebugEngineAttribute.cs" />
+    <Compile Include="Racer\RacerSingleton.cs" />
     <Compile Include="GlobalSuppressions.cs" />
     <Compile Include="RunningDocTableEventsListener.cs" />
     <Compile Include="RustBraceMatcher.cs" />
     <Compile Include="RustClassifier.cs" />
+    <Compile Include="RustClassifierProvider.cs" />
+    <Compile Include="RustCommentSelectionCommandHandler.cs" />
     <Compile Include="RustCompletionCommandHandler.cs" />
     <Compile Include="RustCompletionSource.cs" />
-    <Compile Include="RustTokenTag.cs" />
+    <Compile Include="RustDocumentListener.cs" />
+    <Compile Include="RustF1HelpCommandHandler.cs" />
+    <Compile Include="RustGoToDefinitionCommandHandler.cs" />
     <Compile Include="RustTokenTypes.cs" />
     <Compile Include="Utils.cs" />
     <Compile Include="RustLanguage.cs" />
     <Compile Include="VisualRustPackage.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="VisualRustSmartIndent.cs" />
+    <Compile Include="VSCommandTarget.cs" />
+    <Compile Include="VSPackage.Designer.cs">
+      <AutoGen>True</AutoGen>
+      <DesignTime>True</DesignTime>
+      <DependentUpon>VSPackage.resx</DependentUpon>
+    </Compile>
   </ItemGroup>
   <ItemGroup>
-    <EmbeddedResource Include="Resources.resx">
-      <Generator>ResXFileCodeGenerator</Generator>
-      <LastGenOutput>Resources.Designer.cs</LastGenOutput>
-      <SubType>Designer</SubType>
+    <EmbeddedResource Include="Forms\DebuggingDisabledControl.resx">
+      <DependentUpon>DebuggingDisabledControl.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Forms\DebuggingOptionsPageControl.resx">
+      <DependentUpon>DebuggingOptionsPageControl.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Forms\RustOptionsPageControl.resx">
+      <DependentUpon>RustOptionsPageControl.cs</DependentUpon>
     </EmbeddedResource>
     <EmbeddedResource Include="VSPackage.resx">
       <MergeWithCTO>true</MergeWithCTO>
       <ManifestResourceName>VSPackage</ManifestResourceName>
+      <Generator>ResXFileCodeGenerator</Generator>
+      <LastGenOutput>VSPackage.Designer.cs</LastGenOutput>
     </EmbeddedResource>
   </ItemGroup>
   <ItemGroup>
@@ -201,43 +253,15 @@
       <Link>LICENSE.txt</Link>
       <IncludeInVSIX>true</IncludeInVSIX>
     </Content>
-    <Content Include="Racer\fmt_macros-4e7c5e5c.dll">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <IncludeInVSIX>true</IncludeInVSIX>
-    </Content>
     <Content Include="Racer\libgcc_s_dw2-1.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <IncludeInVSIX>true</IncludeInVSIX>
     </Content>
-    <Content Include="Racer\log-4e7c5e5c.dll">
+    <Content Include="Racer\racer-bf2373e.exe">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <IncludeInVSIX>true</IncludeInVSIX>
     </Content>
-    <Content Include="Racer\racer.exe">
-      <IncludeInVSIX>true</IncludeInVSIX>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="Racer\regex-4e7c5e5c.dll">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <IncludeInVSIX>true</IncludeInVSIX>
-    </Content>
-    <Content Include="Racer\rustrt-4e7c5e5c.dll">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <IncludeInVSIX>true</IncludeInVSIX>
-    </Content>
-    <Content Include="Racer\std-4e7c5e5c.dll">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <IncludeInVSIX>true</IncludeInVSIX>
-    </Content>
-    <Content Include="Racer\syntax-4e7c5e5c.dll">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <IncludeInVSIX>true</IncludeInVSIX>
-    </Content>
-    <Content Include="Racer\term-4e7c5e5c.dll">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <IncludeInVSIX>true</IncludeInVSIX>
-    </Content>
-    <Content Include="Resources\Package.ico" />
+    <Resource Include="Resources\Package.ico" />
     <VSCTCompile Include="VisualRust.vsct" />
   </ItemGroup>
   <ItemGroup>
@@ -245,9 +269,17 @@
       <Project>{cacb60a9-1e76-4f92-8831-b134a658c695}</Project>
       <Name>Microsoft.VisualStudio.Project</Name>
     </ProjectReference>
+    <ProjectReference Include="..\MIEngine\src\MIDebugEngine\MIDebugEngine.csproj">
+      <Project>{6D2688FE-6FD8-44A8-B96A-6037457F72A7}</Project>
+      <Name>MIDebugEngine</Name>
+    </ProjectReference>
     <ProjectReference Include="..\RustLexer\RustLexer.csproj">
       <Project>{e983e989-f83a-4643-896a-ad496bf647d0}</Project>
       <Name>RustLexer</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\VisualRust.Shared\VisualRust.Shared.csproj">
+      <Project>{b99cc9eb-90f2-4040-9e66-418cc7042153}</Project>
+      <Name>VisualRust.Shared</Name>
     </ProjectReference>
     <ProjectReference Include="..\VisualRust.Templates\VisualRust.Templates.csproj">
       <Project>{59D94B96-1AF7-46F2-8790-AAB6DFAE8D9A}</Project>
@@ -273,7 +305,11 @@
     <Delete Files="$(TargetDir)source.extension.vsixmanifest" />
   </Target>
   <Target Name="BeforeBuild">
-    <Copy SourceFiles="source.extension.$(Configuration).vsixmanifest" DestinationFiles="$(TargetDir)source.extension.vsixmanifest" />
+    <PropertyGroup>
+      <_VsixmanifestConfiguration Condition=" '$(Configuration)' == 'Debug-CI' ">Debug</_VsixmanifestConfiguration>
+      <_VsixmanifestConfiguration Condition=" '$(_VsixmanifestConfiguration)' == '' ">$(Configuration)</_VsixmanifestConfiguration>
+    </PropertyGroup>
+    <Copy SourceFiles="source.extension.$(_VsixmanifestConfiguration).vsixmanifest" DestinationFiles="$(TargetDir)source.extension.vsixmanifest" />
     <ItemGroup>
       <None Include="$(TargetDir)source.extension.vsixmanifest" />
     </ItemGroup>

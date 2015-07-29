@@ -6,6 +6,8 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using Microsoft.Build.Framework;
+using System.IO;
+using VisualRust.Shared;
 
 namespace VisualRust.Build
 {
@@ -13,7 +15,6 @@ namespace VisualRust.Build
     {
         private static readonly Regex defectRegex = new Regex(@"^([^\n:]+):(\d+):(\d+):\s+(\d+):(\d+)\s+(.*)$", RegexOptions.Multiline | RegexOptions.CultureInvariant);
 
-        // FIXME: This currently does not handle errors with descriptions, e.g. "unreachable pattern [E0001] (pass `--explain E0001` to see a detailed explanation)"
         private static readonly Regex errorCodeRegex = new Regex(@"\[([A-Z]\d\d\d\d)\]$", RegexOptions.CultureInvariant);
 
         private string[] configFlags = new string[0];
@@ -40,8 +41,8 @@ namespace VisualRust.Build
         /// <summary>
         /// Sets --crate-type option.
         /// </summary>
-        public string[] CrateType
-        {
+        public string[] CrateType 
+        { 
             get { return crateType; }
             set { crateType = value; }
         }
@@ -61,13 +62,13 @@ namespace VisualRust.Build
         /// </summary>
         public string CrateName { get; set; }
 
-        private int? debugInfo;
+        private bool? debugInfo;
         /// <summary>
-        /// Sets --debuginfo option. Default value is 0.
+        /// Sets -g option.
         /// </summary>
-        public int DebugInfo 
+        public bool DebugInfo 
         {
-            get { return debugInfo.HasValue ? debugInfo.Value : 0; }
+            get { return debugInfo.HasValue && debugInfo.Value; }
             set { debugInfo = value; }
         }
 
@@ -90,11 +91,6 @@ namespace VisualRust.Build
         /// Sets --out-dir option.
         /// </summary>
         public string OutputDirectory { get; set; }
-
-        /// <summary>
-        /// Sets --sysroot option.
-        /// </summary>
-        public string SystemRoot { get; set; }
 
         private bool? test;
         /// <summary>
@@ -157,6 +153,16 @@ namespace VisualRust.Build
         /// </summary>
         public string CodegenOptions { get; set; }
 
+        private bool? lto;
+        /// <summary>
+        /// Sets -C lto option. Default value is false.
+        /// </summary>
+        public bool LTO
+        {
+            get { return lto.HasValue ? lto.Value : false; }
+            set { lto = value; }
+        }
+
         [Required]
         public string WorkingDirectory { get; set; }
 
@@ -178,30 +184,34 @@ namespace VisualRust.Build
 
         private bool ExecuteInner()
         {
+            string rustBinPath = VisualRust.Shared.Environment.FindInstallPath(VisualRust.Shared.Environment.DefaultTarget);
+            if(rustBinPath == null)
+            {
+              Log.LogError("No Rust installation detected. You can download official Rust installer from rust-lang.org/install.");
+                return false;
+            }
             StringBuilder sb = new StringBuilder();
             if (ConfigFlags.Length > 0)
                 sb.AppendFormat(" --cfg {0}", String.Join(",", ConfigFlags));
             if (AdditionalLibPaths.Length > 0)
                 sb.AppendFormat(" -L {0}", String.Join(",", AdditionalLibPaths));
             if(CrateType.Length > 0)
-                sb.AppendFormat(" --crate-type {0}", String.Join(",", CrateType));
+                sb.AppendFormat(" --crate-type {0}", String.Join(",",CrateType));
             if(Emit.Length > 0)
                 sb.AppendFormat(" --emit {0}", String.Join(",", Emit));
             if(!String.IsNullOrWhiteSpace(CrateName))
                 sb.AppendFormat(" --crate-name {0}", CrateName);
-            if(debugInfo.HasValue)
-                sb.AppendFormat(" --debuginfo {0}", DebugInfo);
+            if(DebugInfo)
+                sb.AppendFormat(" -g");
             if(OutputFile != null)
                 sb.AppendFormat(" -o {0}", OutputFile);
             if (optimizationLevel.HasValue)
-                sb.AppendFormat(" --opt-level {0}", OptimizationLevel);
+                sb.AppendFormat(" -C opt-level={0}", Shared.OptimizationLevelExtension.Parse(OptimizationLevel.ToString()).ToBuildString());
             if (OutputDirectory != null)
                 sb.AppendFormat(" --out-dir {0}", OutputDirectory);
-            if (SystemRoot != null)
-                sb.AppendFormat(" --sysroot {0}", SystemRoot);
             if (test.HasValue && test.Value)
                 sb.Append(" --test");
-            if (TargetTriple != null)
+            if (TargetTriple != null && !String.Equals(TargetTriple, Shared.Environment.DefaultTarget, StringComparison.OrdinalIgnoreCase))
                 sb.AppendFormat(" --target {0}", TargetTriple);
             if(LintsAsWarnings.Length > 0)
                 sb.AppendFormat(" -W {0}", String.Join(",", LintsAsWarnings));
@@ -211,19 +221,31 @@ namespace VisualRust.Build
                 sb.AppendFormat(" -D {0}", String.Join(",", LintsAsDenied));
             if(LintsAsForbidden.Length > 0)
                 sb.AppendFormat(" -F {0}", String.Join(",", LintsAsForbidden));
+            if (lto.HasValue && lto.Value)
+                sb.AppendFormat(" -C lto");
             if (CodegenOptions != null)
                 sb.AppendFormat(" -C {0}", CodegenOptions);
             sb.AppendFormat(" {0}", Input);
-            // Currently we hope that rustc is in the path
+            string target = TargetTriple ?? Shared.Environment.DefaultTarget;
+            string installPath = Shared.Environment.FindInstallPath(target);
+            if(installPath == null)
+            {
+                if(String.Equals(target, Shared.Environment.DefaultTarget, StringComparison.OrdinalIgnoreCase))
+                    Log.LogError("Could not find a Rust installation.");
+                else
+                    Log.LogError("Could not find a Rust installation that can compile target {0}.", target);
+                return false;
+            }
             var psi = new ProcessStartInfo()
             {
                 CreateNoWindow = true,
-                FileName = "rustc.exe",
+                FileName =  Path.Combine(installPath, "rustc.exe"),
                 UseShellExecute = false,
                 WorkingDirectory = WorkingDirectory,
                 Arguments = sb.ToString(),
                 RedirectStandardError = true
             };
+            Log.LogCommandLine(String.Join(" ", psi.FileName, psi.Arguments));
             try
             {
                 Process process = new Process();
@@ -282,29 +304,38 @@ namespace VisualRust.Build
             RustcParsedMessage previous = null;
             foreach (Match match in errorMatches)
             {
-                Match errorMatch = errorCodeRegex.Match(match.Groups[6].Value);
+                string remainingMsg = match.Groups[6].Value.Trim();
+                Match errorMatch = errorCodeRegex.Match(remainingMsg);
                 string errorCode = errorMatch.Success ? errorMatch.Groups[1].Value : null;
                 int line = Int32.Parse(match.Groups[2].Value, System.Globalization.NumberStyles.None);
                 int col = Int32.Parse(match.Groups[3].Value, System.Globalization.NumberStyles.None);
                 int endLine = Int32.Parse(match.Groups[4].Value, System.Globalization.NumberStyles.None);
                 int endCol = Int32.Parse(match.Groups[5].Value, System.Globalization.NumberStyles.None);
 
-                if (match.Groups[6].Value.StartsWith("warning: "))
+                if (remainingMsg.StartsWith("warning: "))
                 {
                     string msg = match.Groups[6].Value.Substring(9, match.Groups[6].Value.Length - 9 - (errorCode != null ? 8 : 0));
                     if (previous != null) yield return previous;
                     previous = new RustcParsedMessage(RustcParsedMessageType.Warning, msg, errorCode, match.Groups[1].Value,
                         line, col, endLine, endCol);
                 }
-                else if (match.Groups[6].Value.StartsWith("note: "))
+                else if (remainingMsg.StartsWith("note: ") || remainingMsg.StartsWith("help: "))
                 {
-                    string msg = match.Groups[6].Value.Substring(6, match.Groups[6].Value.Length - 6 - (errorCode != null ? 8 : 0));
-                    RustcParsedMessage note = new RustcParsedMessage(RustcParsedMessageType.Note, msg, errorCode, match.Groups[1].Value,
+                    if (remainingMsg.StartsWith("help: pass `--explain ") && previous != null)
+                    {
+                        previous.CanExplain = true;
+                        continue;
+                    }
+
+                    // NOTE: "note: " and "help: " are both 6 characters long (though hardcoding this is probably still not a very good idea)
+                    string msg = remainingMsg.Substring(6, remainingMsg.Length - 6 - (errorCode != null ? 8 : 0));
+                    var type = remainingMsg.StartsWith("note: ") ? RustcParsedMessageType.Note : RustcParsedMessageType.Help;
+                    RustcParsedMessage note = new RustcParsedMessage(type, msg, errorCode, match.Groups[1].Value,
                         line, col, endLine, endCol);
 
                     if (previous != null)
                     {
-                        // try to merge notes with a previous message (warning or error where it belongs to), if the span is the same
+                        // try to merge notes and help messages with a previous message (warning or error where it belongs to), if the span is the same
                         if (previous.TryMergeWithFollowing(note))
                         {
                             continue; // skip setting new previous, because we successfully merged the new note into the previous message
@@ -318,8 +349,8 @@ namespace VisualRust.Build
                 }
                 else
                 {
-                    bool startsWithError = match.Groups[6].Value.StartsWith("error: ");
-                    string msg = match.Groups[6].Value.Substring((startsWithError ? 7 : 0), match.Groups[6].Value.Length - (startsWithError ? 7 : 0) - (errorCode != null ? 8 : 0));
+                    bool startsWithError = remainingMsg.StartsWith("error: ");
+                    string msg = remainingMsg.Substring((startsWithError ? 7 : 0), remainingMsg.Length - (startsWithError ? 7 : 0) - (errorCode != null ? 8 : 0));
                     if (previous != null) yield return previous;
                     previous = new RustcParsedMessage(RustcParsedMessageType.Error, msg, errorCode, match.Groups[1].Value,
                         line, col, endLine, endCol);

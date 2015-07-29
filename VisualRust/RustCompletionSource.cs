@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel.Composition;
 using System.Linq;
 using System.Windows.Media;
+using Antlr4.Runtime;
 using Microsoft.VisualStudio.Language.Intellisense;
 using Microsoft.VisualStudio.Text;
 using Microsoft.VisualStudio.Text.Operations;
@@ -52,8 +53,25 @@ namespace VisualRust
         private readonly ITextBuffer buffer;
         private bool disposed;
 
-        private readonly IEnumerable<Completion> keywordCompletions =
-            Utils.Keywords.Select(k => new Completion(k, k + " ", "", null, null));
+        private readonly IEnumerable<Completion> keywordCompletions = GetKeywordCompletions();
+
+        /// <summary>
+        /// Get completions list filtered by prefix
+        /// </summary>
+        /// <param name="prefix">
+        /// String with prefix before caret in source code
+        /// </param>
+        /// <returns>
+        /// List completions
+        /// </returns>
+        private static IEnumerable<Completion> GetKeywordCompletions(string prefix = null)
+        {
+            var keywords = Utils.Keywords;
+            var resultKeywords = string.IsNullOrEmpty(prefix) ? keywords : keywords.Where(x => x.StartsWith(prefix));
+            var completions = resultKeywords.Select(k => new Completion(k, k + " ", "", null, ""));
+
+            return completions;
+        }
 
         public RustCompletionSource(ITextBuffer buffer, IGlyphService glyphService)
         {
@@ -129,11 +147,8 @@ namespace VisualRust
                 return;
             }
 
-            // Get token under cursor.
-            var tokens = Utils.LexString(line.GetText());
-            var activeToken = col == line.Length
-                ? tokens.Last()
-                : tokens.FirstOrDefault(t => col >= t.StartIndex && col <= t.StopIndex);
+            // Get token under cursor.            
+            var activeToken = GetActiveToken(col, line);
             if (activeToken == null)
                 return;
 
@@ -149,10 +164,58 @@ namespace VisualRust
             var span = snapshot.CreateTrackingSpan(extent.Span, SpanTrackingMode.EdgeInclusive);
 
             // Fetch racer completions & return in a completion set.
-            var completions = GetCompletions(tokenType, activeToken.Text, RunRacer(snapshot, triggerPoint)).ToList();
-            completions.AddRange(keywordCompletions);
+            string prefix;
+            var completions = GetCompletions(RunRacer(snapshot, triggerPoint), out prefix).ToList();
+            completions.AddRange(GetKeywordCompletions(prefix));
 
             completionSets.Add(new RustCompletionSet("All", "All", span, completions, null));
+        }
+
+        private static IToken GetActiveToken(int columnIndex, ITextSnapshotLine line)
+        {
+            var tokens = Utils.LexString(line.GetText());
+            if (columnIndex == line.Length)
+            {
+                var lastToken = tokens.Last();
+                if (lastToken.Type == RustLexer.RustLexer.IDENT)
+                    return lastToken;
+                
+                // fake token for an ident not yet started at the end of the line. 
+                return new CommonToken(new Tuple<ITokenSource, ICharStream>(lastToken.TokenSource, lastToken.TokenSource.InputStream),
+                    RustLexer.RustLexer.IDENT, 0, columnIndex, columnIndex);
+            }
+
+            IToken token = null;
+            IToken previousToken = null;
+            foreach (var currentToken in tokens)
+            {
+                if (currentToken.StartIndex <= columnIndex && columnIndex <= currentToken.StopIndex)
+                {
+                    token = currentToken;
+                    break;
+                }
+
+                previousToken = currentToken;
+            }
+
+            if (token == null)
+            {
+                return null;
+            }
+
+            if (token.Type == RustLexer.RustLexer.IDENT)
+            {
+                return token;
+            }
+
+            // if current token isn't identifier and caret at end of ident token
+            if (token.StartIndex == columnIndex && previousToken != null && previousToken.Type == RustLexer.RustLexer.IDENT)
+            {
+                return previousToken;
+            }
+
+            // fake token for position between 2 non-ident tokens
+            return new CommonToken(new Tuple<ITokenSource, ICharStream>(token.TokenSource, token.TokenSource.InputStream), 1, 0, token.StartIndex, token.StartIndex - 1);
         }
 
         private static int GetColumn(SnapshotPoint point)
@@ -170,22 +233,32 @@ namespace VisualRust
                 int lineNumber = point.GetContainingLine().LineNumber;
                 int charNumber = GetColumn(point);
                 string args = string.Format("complete {0} {1} {2}", lineNumber + 1, charNumber, tmpFile.Path);
-                return Racer.AutoCompleter.Run(args);
+                return Racer.RacerSingleton.Run(args);
             }
         }
 
-
+        
         // Parses racer output into completions.
-        private IEnumerable<Completion> GetCompletions(RustTokenTypes tokenType, string tokenText, string racerResponse)
+        private IEnumerable<Completion> GetCompletions(string racerResponse, out string prefix)
         {
             // Completions from racer.
-            var lines = racerResponse.Split(new[] { '\n' }, StringSplitOptions.None).Where(l => l.StartsWith("MATCH"));
-            foreach (var line in lines)
+            var lines = racerResponse.Split(new[] { '\n' }, StringSplitOptions.None);
+            prefix = GetPrefix(lines[0]);
+
+            return GetCompletions(lines);
+        }
+
+        private IEnumerable<Completion> GetCompletions(string[] lines)
+        {            
+            var matches = lines.Where(l => l.StartsWith("MATCH")).Distinct(StringComparer.Ordinal);
+
+            foreach (var matchLine in matches)
             {
-                var tokens = line.Substring(6).Split(',');
-                string text = tokens[0];
-                string langElemText = tokens[4];
-                string description = tokens[5];
+                var tokens = matchLine.Substring(6).Split(',');
+                var text = tokens[0];
+                var langElemText = tokens[4];
+                var descriptionStartIndex = tokens[0].Length + tokens[1].Length + tokens[2].Length + tokens[3].Length + tokens[4].Length + 11;
+                var description = matchLine.Substring(descriptionStartIndex);
                 CompletableLanguageElement elType;
 
                 if (!Enum.TryParse(langElemText, out elType))
@@ -194,11 +267,20 @@ namespace VisualRust
                     continue;
                 }
 
-                string insertionText = tokenType == RustTokenTypes.STRUCTURAL ? tokenText + text : text;
+                var insertionText = text;
                 var icon = GetCompletionIcon(elType);
 
-                yield return new Completion(text, insertionText, description, icon, null);
+                yield return new Completion(text, insertionText, description, icon, "");
             }
+        }
+
+        private string GetPrefix(string line)
+        {
+            var tokens = line.Split(',');
+            if(tokens.Length != 3)
+                return null;
+            var prefix = tokens[2];
+            return prefix;
         }
 
         public void Dispose()
@@ -223,7 +305,7 @@ namespace VisualRust
 
         public override void Filter()
         {
-            Filter(CompletionMatchType.MatchInsertionText, false);
+            Filter(CompletionMatchType.MatchInsertionText, true);
         }
     }
 

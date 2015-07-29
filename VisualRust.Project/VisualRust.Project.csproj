@@ -37,6 +37,15 @@
   <PropertyGroup>
     <RunPostBuildEvent>OnBuildSuccess</RunPostBuildEvent>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug-CI|AnyCPU'">
+    <DebugSymbols>true</DebugSymbols>
+    <OutputPath>bin\Debug-CI\</OutputPath>
+    <DefineConstants>TRACE;DEBUG;TEST</DefineConstants>
+    <NoWarn>3021</NoWarn>
+    <DebugType>full</DebugType>
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <ErrorReport>prompt</ErrorReport>
+  </PropertyGroup>
   <ItemGroup>
     <Reference Include="Antlr4.Runtime.net45">
       <HintPath>..\packages\Antlr4.Runtime.4.3.0\lib\net45\Antlr4.Runtime.net45.dll</HintPath>
@@ -48,8 +57,11 @@
       <EmbedInteropTypes>False</EmbedInteropTypes>
     </Reference>
     <Reference Include="Microsoft.Build" />
+    <Reference Include="Microsoft.VisualStudio.Debugger.Interop.11.0, Version=11.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL" />
+    <Reference Include="Microsoft.VisualStudio.Debugger.InteropA, Version=9.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a" />
     <Reference Include="Microsoft.VisualStudio.OLE.Interop, Version=7.1.40304.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a" />
     <Reference Include="Microsoft.VisualStudio.Shell.12.0, Version=12.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL" />
+    <Reference Include="Microsoft.VisualStudio.Shell.Immutable.10.0, Version=10.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL" />
     <Reference Include="Microsoft.VisualStudio.Shell.Interop, Version=7.1.40304.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a" />
     <Reference Include="Microsoft.VisualStudio.Shell.Interop.10.0, Version=10.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
       <EmbedInteropTypes>False</EmbedInteropTypes>
@@ -77,9 +89,49 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="BaseFileNode.cs" />
+    <Compile Include="Configuration\Application.cs">
+      <DependentUpon>Application.tt</DependentUpon>
+      <AutoGen>True</AutoGen>
+      <DesignTime>True</DesignTime>
+    </Compile>
+    <Compile Include="Configuration\Application.Custom.cs" />
+    <Compile Include="Configuration\Build.Custom.cs" />
+    <Compile Include="Configuration\MsBuildConfiguration.cs" />
+    <Compile Include="Configuration\Debug.cs">
+      <AutoGen>True</AutoGen>
+      <DesignTime>True</DesignTime>
+      <DependentUpon>Debug.tt</DependentUpon>
+    </Compile>
+    <Compile Include="Configuration\Debug.Custom.cs" />
+    <Compile Include="Configuration\UserProjectConfig.cs" />
+    <Compile Include="Configuration\Utils.cs" />
+    <Compile Include="Constants.cs" />
+    <Compile Include="Configuration\Build.cs">
+      <AutoGen>True</AutoGen>
+      <DesignTime>True</DesignTime>
+      <DependentUpon>Build.tt</DependentUpon>
+    </Compile>
     <Compile Include="DefaultRustLauncher.cs" />
+    <Compile Include="EnvironmentPath.cs" />
+    <Compile Include="Feature.cs" />
+    <Compile Include="FolderNode.cs" />
+    <Compile Include="Forms\BuildPropertyControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="Forms\ApplicationPropertyControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="Forms\DebugPropertyControl.cs">
+      <SubType>usercontrol</SubType>
+    </Compile>
+    <Compile Include="Forms\DebugPropertyControl.Designer.cs">
+      <DependentUpon>DebugPropertyControl.cs</DependentUpon>
+    </Compile>
+    <Compile Include="Forms\Utils.cs" />
     <Compile Include="IconIndex.cs" />
     <Compile Include="CollectionDifference.cs" />
+    <Compile Include="RustConfigProvider.cs" />
+    <Compile Include="RustProjectConfig.cs" />
     <Compile Include="TrackedFileNode.cs" />
     <Compile Include="FileNodeProperties.cs" />
     <Compile Include="ModuleRemovalResult.cs" />
@@ -112,6 +164,18 @@
       <Project>{cacb60a9-1e76-4f92-8831-b134a658c695}</Project>
       <Name>Microsoft.VisualStudio.Project</Name>
     </ProjectReference>
+    <ProjectReference Include="..\MIEngine\src\MIDebugEngine\MIDebugEngine.csproj">
+      <Project>{6D2688FE-6FD8-44A8-B96A-6037457F72A7}</Project>
+      <Name>MIDebugEngine</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\VisualRust.Build\VisualRust.Build.csproj">
+      <Project>{9cf556ab-76fe-4c3d-ad0a-b64b3b9989b4}</Project>
+      <Name>VisualRust.Build</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\VisualRust.Shared\VisualRust.Shared.csproj">
+      <Project>{b99cc9eb-90f2-4040-9e66-418cc7042153}</Project>
+      <Name>VisualRust.Shared</Name>
+    </ProjectReference>
   </ItemGroup>
   <ItemGroup>
     <Antlr4 Include="Module.g4">
@@ -121,6 +185,9 @@
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
+    <EmbeddedResource Include="Forms\DebugPropertyControl.resx">
+      <DependentUpon>DebugPropertyControl.cs</DependentUpon>
+    </EmbeddedResource>
     <EmbeddedResource Include="Properties\Resources.resx">
       <Generator>ResXFileCodeGenerator</Generator>
       <LastGenOutput>Resources.Designer.cs</LastGenOutput>
@@ -128,6 +195,26 @@
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="Resources\IconList.bmp" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Configuration\ConfigurationTemplate.ttinclude" />
+  </ItemGroup>
+  <ItemGroup>
+    <Service Include="{508349B6-6B84-4DF5-91F0-309BEEBAD82D}" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="Configuration\Application.tt">
+      <Generator>TextTemplatingFileGenerator</Generator>
+      <LastGenOutput>Application.cs</LastGenOutput>
+    </Content>
+    <Content Include="Configuration\Build.tt">
+      <Generator>TextTemplatingFileGenerator</Generator>
+      <LastGenOutput>Build.cs</LastGenOutput>
+    </Content>
+    <Content Include="Configuration\Debug.tt">
+      <Generator>TextTemplatingFileGenerator</Generator>
+      <LastGenOutput>Debug.cs</LastGenOutput>
+    </Content>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
